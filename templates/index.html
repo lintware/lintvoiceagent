@@ -223,6 +223,7 @@
     <div class="container">
         <div class="header">
             <h1>Voice Chat Assistant</h1>
+            <div class="status-text" style="margin-top:8px;color:#666">VAD: Silero</div>
         </div>
 
         <div class="error" id="error"></div>
@@ -247,38 +248,116 @@
         let audioContext;
         let stream;
         let isRecording = false;
+        // VAD is fixed to Silero
 
         const recordBtn = document.getElementById('recordBtn');
         const chatContainer = document.getElementById('chatContainer');
         const statusText = document.getElementById('statusText');
         const errorDiv = document.getElementById('error');
+        // No VAD toggle in this version
+
+        // Audio playback queue for streaming TTS
+        let audioQueue = [];
+        let isPlayingAudio = false;
+        let audioPlaybackContext = null;
+        let currentSource = null;
+        let playbackEnabled = true; // gate to ignore audio when stopped
 
         socket = io();
 
         socket.on('connect', () => {
             recordBtn.disabled = false;
             statusText.textContent = 'Ready';
+            // Silero is default; no mode selection needed
         });
 
         socket.on('disconnect', () => {
             recordBtn.disabled = true;
             statusText.textContent = 'Disconnected';
+            // Ensure any ongoing audio is stopped on disconnect
+            playbackEnabled = false;
+            stopAudioPlayback();
+        });
+
+        socket.on('vad_mode_changed', (data) => {
+            console.log('VAD:', data.message);
+        });
+        socket.on('stream_started', (data) => {
+            console.log('Stream started');
         });
 
         let currentAssistantBubble = null;
+        let currentPartialBubble = null;
+
+        // Pipeline stage logging
+        socket.on('pipeline_stage', (data) => {
+            console.log(`%c[${data.stage.toUpperCase()}] ${data.message}`,
+                'color: #007aff; font-weight: bold');
+        });
+
+        socket.on('partial_transcription', (data) => {
+            console.log('[PARTIAL TRANSCRIPTION]', data.text);
+            // Show partial transcription while user is speaking
+            if (data.text) {
+                if (!currentPartialBubble) {
+                    // Create a partial message bubble (lighter style)
+                    const emptyState = chatContainer.querySelector('.empty-state');
+                    if (emptyState) {
+                        emptyState.remove();
+                    }
+
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = 'message user';
+                    messageDiv.style.opacity = '0.6';  // Make it lighter
+
+                    const avatar = document.createElement('div');
+                    avatar.className = 'avatar';
+                    avatar.textContent = '👤';
+
+                    const bubble = document.createElement('div');
+                    bubble.className = 'message-bubble';
+                    bubble.textContent = data.text;
+
+                    messageDiv.appendChild(bubble);
+                    messageDiv.appendChild(avatar);
+
+                    chatContainer.appendChild(messageDiv);
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+                    currentPartialBubble = { div: messageDiv, bubble: bubble };
+                } else {
+                    // Update existing partial bubble
+                    currentPartialBubble.bubble.textContent = data.text;
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                }
+            }
+        });
 
         socket.on('user_message', (data) => {
+            console.log('[USER MESSAGE] Displaying final transcription:', data.text);
             if (data.text) {
+                // Remove partial bubble if exists
+                if (currentPartialBubble) {
+                    currentPartialBubble.div.remove();
+                    currentPartialBubble = null;
+                }
+                // Add final message
                 addMessage(data.text, 'user');
             }
         });
 
         socket.on('assistant_start', () => {
+            console.log('[ASSISTANT START] Creating assistant message bubble');
+            playbackEnabled = true;
+
             // Create empty assistant message bubble
             const emptyState = chatContainer.querySelector('.empty-state');
             if (emptyState) {
                 emptyState.remove();
             }
+
+            // Stop any ongoing audio from previous response
+            stopAudioPlayback();
 
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message assistant';
@@ -302,14 +381,119 @@
 
         socket.on('assistant_token', (data) => {
             if (currentAssistantBubble && data.token) {
+                // Log first few tokens
+                if (currentAssistantBubble.textContent.length < 20) {
+                    console.log('[ASSISTANT TOKEN] Received token:', data.token);
+                }
                 currentAssistantBubble.textContent += data.token;
                 chatContainer.scrollTop = chatContainer.scrollHeight;
             }
         });
 
+        // Periodic full text sync to fix any token drops
+        socket.on('assistant_progress', (data) => {
+            if (currentAssistantBubble && typeof data.text === 'string') {
+                currentAssistantBubble.textContent = data.text;
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+        });
+
         socket.on('assistant_complete', (data) => {
+            console.log('[ASSISTANT COMPLETE] Full response received');
             currentAssistantBubble = null;
         });
+
+        // Handle streaming audio from TTS
+        socket.on('assistant_audio', (data) => {
+            console.log('[ASSISTANT AUDIO] Received audio chunk, queuing for playback');
+            if (data.audio && playbackEnabled) {
+                queueAudio(data.audio, data.sample_rate || 24000);
+            }
+        });
+
+        // Cancel/stop assistant playback (barge-in)
+        socket.on('assistant_cancel', () => {
+            console.log('[ASSISTANT CANCEL] Stopping audio playback due to barge-in');
+            playbackEnabled = false;
+            stopAudioPlayback();
+        });
+
+        async function queueAudio(base64Audio, sampleRate) {
+            // Decode base64 to ArrayBuffer
+            const binaryString = atob(base64Audio);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            // Add to queue
+            audioQueue.push({ data: bytes.buffer, sampleRate: sampleRate });
+
+            // Start playback if not already playing
+            if (!isPlayingAudio) {
+                playNextAudio();
+            }
+        }
+
+        async function playNextAudio() {
+            if (audioQueue.length === 0) {
+                isPlayingAudio = false;
+                console.log('[AUDIO PLAYBACK] Queue empty, playback complete');
+                return;
+            }
+
+            isPlayingAudio = true;
+            const audioData = audioQueue.shift();
+            console.log(`[AUDIO PLAYBACK] Playing audio chunk (${audioQueue.length} remaining in queue)`);
+
+            try {
+                // Initialize audio context if needed
+                if (!audioPlaybackContext) {
+                    audioPlaybackContext = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log('[AUDIO PLAYBACK] Audio context initialized');
+                }
+
+                // Decode WAV file
+                const audioBuffer = await audioPlaybackContext.decodeAudioData(audioData.data);
+                console.log(`[AUDIO PLAYBACK] Audio decoded: ${audioBuffer.duration.toFixed(2)}s`);
+
+                // Create source and play
+                const source = audioPlaybackContext.createBufferSource();
+                currentSource = source;
+                source.buffer = audioBuffer;
+                source.connect(audioPlaybackContext.destination);
+
+                // When this chunk finishes, play the next one
+                source.onended = () => {
+                    console.log('[AUDIO PLAYBACK] Chunk finished, playing next');
+                    if (currentSource === source) currentSource = null;
+                    playNextAudio();
+                };
+
+                source.start(0);
+
+            } catch (error) {
+                console.error('[AUDIO PLAYBACK ERROR]', error);
+                // Try next audio chunk even if this one fails
+                playNextAudio();
+            }
+        }
+
+        function stopAudioPlayback() {
+            // Stop current audio
+            try {
+                if (currentSource) {
+                    currentSource.stop(0);
+                    currentSource.disconnect();
+                    currentSource = null;
+                }
+            } catch (e) {
+                console.warn('[AUDIO STOP WARNING]', e);
+            }
+            // Clear queue
+            audioQueue = [];
+            isPlayingAudio = false;
+        }
 
         socket.on('error', (data) => {
             errorDiv.textContent = data.message;
@@ -435,6 +619,8 @@
             recordBtn.disabled = true;
             statusText.textContent = 'Microphone not supported';
         }
+
+        // No VAD toggle
     </script>
 </body>
 </html>
