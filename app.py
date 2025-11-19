@@ -42,6 +42,9 @@ last_partial_text = defaultdict(str)  # Track last partial transcription to avoi
 vad_detectors = {}  # Store VAD detector per session
 vad_modes = defaultdict(lambda: DEFAULT_VAD_MODE)  # Track VAD mode per session
 silence_counters = defaultdict(int)  # Track consecutive silent chunks (for Silero only)
+# New: maintain a full-buffer per utterance to ensure final transcription sees all speech
+utterance_audio_full = defaultdict(list)
+utterance_active = defaultdict(bool)
 # Track assistant generation per session for cancellation/barge-in
 current_generation_id = defaultdict(int)
 generation_active = defaultdict(bool)
@@ -226,6 +229,10 @@ def handle_disconnect():
     with buffer_locks[sid]:
         if sid in audio_buffers:
             del audio_buffers[sid]
+        if sid in utterance_audio_full:
+            del utterance_audio_full[sid]
+        if sid in utterance_active:
+            del utterance_active[sid]
         if sid in accumulated_text:
             del accumulated_text[sid]
         if sid in conversation_history:
@@ -260,6 +267,8 @@ def handle_start_stream():
     sid = request.sid
     with buffer_locks[sid]:
         audio_buffers[sid] = []
+        utterance_audio_full[sid] = []
+        utterance_active[sid] = False
         accumulated_text[sid] = ""
         silence_counters[sid] = 0
         last_partial_text[sid] = ""
@@ -300,6 +309,15 @@ def handle_audio_chunk(data):
 
             # Check if current chunk has speech
             chunk_has_speech = vad_detector.has_speech(audio_float)
+
+            # Manage full-utterance buffer lifecycle
+            if chunk_has_speech and not utterance_active[sid]:
+                # Start a new utterance
+                utterance_active[sid] = True
+                utterance_audio_full[sid] = []
+            if utterance_active[sid]:
+                # Keep collecting audio (including intervening short silences)
+                utterance_audio_full[sid].append(audio_float)
 
             # Barge-in: if user starts speaking while assistant is active, cancel current generation
             if chunk_has_speech and generation_active.get(sid, False):
@@ -353,7 +371,14 @@ def handle_audio_chunk(data):
                         is_final = should_finalize
                         action = 'final' if is_final else 'partial'
                         # Copy audio out for processing without holding the lock
-                        audio_to_process = combined_audio.copy()
+                        # For partials, use rolling window; for final, use the full utterance buffer
+                        if is_final and utterance_audio_full[sid]:
+                            try:
+                                audio_to_process = np.concatenate(utterance_audio_full[sid]).copy()
+                            except Exception:
+                                audio_to_process = combined_audio.copy()
+                        else:
+                            audio_to_process = combined_audio.copy()
                         # For partials, keep overlap to improve continuity
                         if not is_final:
                             if len(combined_audio) > OVERLAP_SAMPLES:
@@ -362,6 +387,8 @@ def handle_audio_chunk(data):
                             # For final, reset buffer and partial text for next turn
                             audio_buffers[sid] = []
                             last_partial_text[sid] = ""
+                            utterance_active[sid] = False
+                            utterance_audio_full[sid] = []
 
         # If nothing to do, return quickly
         if action == 'none' or audio_to_process is None:
@@ -454,19 +481,28 @@ def handle_stop_stream():
         with buffer_locks[sid]:
             vad_detector = get_vad_detector(sid)
 
-            if sid in audio_buffers and audio_buffers[sid]:
+            # Prefer full utterance buffer if available
+            candidate_audio = None
+            if utterance_active.get(sid, False) and utterance_audio_full.get(sid):
+                try:
+                    candidate_audio = np.concatenate(utterance_audio_full[sid])
+                except Exception:
+                    candidate_audio = None
+            if candidate_audio is None and sid in audio_buffers and audio_buffers[sid]:
                 combined_audio = np.concatenate(audio_buffers[sid])
-
                 if vad_detector.has_speech(combined_audio):
-                    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
-                        tmp_path = tmp_file.name
-                        with wave.open(tmp_path, 'wb') as wf:
-                            wf.setnchannels(1)
-                            wf.setsampwidth(2)
-                            wf.setframerate(16000)
-                            pcm16 = np.clip(combined_audio, -1.0, 1.0)
-                            pcm16 = (pcm16 * 32767.0).astype(np.int16)
-                            wf.writeframes(pcm16.tobytes())
+                    candidate_audio = combined_audio
+
+            if candidate_audio is not None and candidate_audio.size > 0:
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
+                    tmp_path = tmp_file.name
+                    with wave.open(tmp_path, 'wb') as wf:
+                        wf.setnchannels(1)
+                        wf.setsampwidth(2)
+                        wf.setframerate(16000)
+                        pcm16 = np.clip(candidate_audio, -1.0, 1.0)
+                        pcm16 = (pcm16 * 32767.0).astype(np.int16)
+                        wf.writeframes(pcm16.tobytes())
 
                     try:
                         result = transcription_model.transcribe(tmp_path)
@@ -493,6 +529,8 @@ def handle_stop_stream():
             socketio.emit('assistant_cancel', {'reason': 'stop'}, room=sid)
 
             audio_buffers[sid] = []
+            utterance_audio_full[sid] = []
+            utterance_active[sid] = False
             accumulated_text[sid] = ""
 
     except Exception as e:

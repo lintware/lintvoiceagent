@@ -262,6 +262,9 @@
         let audioPlaybackContext = null;
         let currentSource = null;
         let playbackEnabled = true; // gate to ignore audio when stopped
+        // Gapless scheduling state
+        let nextStartTime = 0; // when the next chunk should start
+        let activeSources = []; // all scheduled sources for cancel/stop
 
         socket = io();
 
@@ -349,6 +352,8 @@
         socket.on('assistant_start', () => {
             console.log('[ASSISTANT START] Creating assistant message bubble');
             playbackEnabled = true;
+            // Reset scheduling for a fresh response
+            nextStartTime = 0;
 
             // Create empty assistant message bubble
             const emptyState = chatContainer.querySelector('.empty-state');
@@ -436,6 +441,7 @@
         }
 
         async function playNextAudio() {
+            // Schedule all available chunks back-to-back for gapless playback
             if (audioQueue.length === 0) {
                 isPlayingAudio = false;
                 console.log('[AUDIO PLAYBACK] Queue empty, playback complete');
@@ -443,56 +449,71 @@
             }
 
             isPlayingAudio = true;
-            const audioData = audioQueue.shift();
-            console.log(`[AUDIO PLAYBACK] Playing audio chunk (${audioQueue.length} remaining in queue)`);
+
+            // Initialize audio context if needed
+            if (!audioPlaybackContext) {
+                audioPlaybackContext = new (window.AudioContext || window.webkitAudioContext)();
+                console.log('[AUDIO PLAYBACK] Audio context initialized');
+                nextStartTime = 0; // reset scheduling baseline
+            }
 
             try {
-                // Initialize audio context if needed
-                if (!audioPlaybackContext) {
-                    audioPlaybackContext = new (window.AudioContext || window.webkitAudioContext)();
-                    console.log('[AUDIO PLAYBACK] Audio context initialized');
+                // Schedule as many as are currently queued
+                while (audioQueue.length > 0 && playbackEnabled) {
+                    const audioData = audioQueue.shift();
+                    // Decode WAV
+                    const audioBuffer = await audioPlaybackContext.decodeAudioData(audioData.data);
+                    console.log(`[AUDIO PLAYBACK] Decoded chunk: ${audioBuffer.duration.toFixed(2)}s`);
+
+                    // Create and schedule source at precise time for gapless playback
+                    const source = audioPlaybackContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(audioPlaybackContext.destination);
+
+                    // Compute start time: schedule after previously scheduled audio
+                    const now = audioPlaybackContext.currentTime;
+                    if (nextStartTime === 0 || nextStartTime < now) {
+                        // Align to now with a tiny safety offset
+                        nextStartTime = now + 0.02;
+                    }
+                    source.start(nextStartTime);
+                    activeSources.push(source);
+                    currentSource = source; // keep a reference to the most recent
+
+                    // Advance next start time by duration
+                    nextStartTime += audioBuffer.duration;
                 }
-
-                // Decode WAV file
-                const audioBuffer = await audioPlaybackContext.decodeAudioData(audioData.data);
-                console.log(`[AUDIO PLAYBACK] Audio decoded: ${audioBuffer.duration.toFixed(2)}s`);
-
-                // Create source and play
-                const source = audioPlaybackContext.createBufferSource();
-                currentSource = source;
-                source.buffer = audioBuffer;
-                source.connect(audioPlaybackContext.destination);
-
-                // When this chunk finishes, play the next one
-                source.onended = () => {
-                    console.log('[AUDIO PLAYBACK] Chunk finished, playing next');
-                    if (currentSource === source) currentSource = null;
-                    playNextAudio();
-                };
-
-                source.start(0);
-
             } catch (error) {
                 console.error('[AUDIO PLAYBACK ERROR]', error);
-                // Try next audio chunk even if this one fails
-                playNextAudio();
+            } finally {
+                // If more audio arrives later, queueAudio() will call playNextAudio() again
+                if (audioQueue.length === 0) {
+                    isPlayingAudio = false;
+                }
             }
         }
 
         function stopAudioPlayback() {
-            // Stop current audio
+            // Stop all scheduled/playing sources
             try {
+                activeSources.forEach(src => {
+                    try {
+                        src.stop(0);
+                        src.disconnect();
+                    } catch (_) {}
+                });
+                activeSources = [];
                 if (currentSource) {
-                    currentSource.stop(0);
-                    currentSource.disconnect();
+                    try { currentSource.stop(0); currentSource.disconnect(); } catch (_) {}
                     currentSource = null;
                 }
             } catch (e) {
                 console.warn('[AUDIO STOP WARNING]', e);
             }
-            // Clear queue
+            // Clear queue and reset scheduling
             audioQueue = [];
             isPlayingAudio = false;
+            nextStartTime = 0;
         }
 
         socket.on('error', (data) => {
