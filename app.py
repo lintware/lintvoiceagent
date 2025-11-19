@@ -84,17 +84,28 @@ def get_llm_response_streaming(conversation_messages, sid, gen_id=None):
         print("TTS model loaded!")
 
     try:
+        # Preload system prompt for Mint persona
+        system_prompt = (
+            "You are Mint, a lightweight conversational agent here to help with anything. "
+            "Please respond in a natural, conversational voice style. "
+            "Avoid using Markdown formatting like bolding, headers, or lists, as your response will be spoken aloud. "
+            "Keep responses concise and friendly."
+        )
+        
+        # Prepend system prompt to conversation history for generation
+        messages_with_system = [{"role": "system", "content": system_prompt}] + conversation_messages
+
         # Apply chat template with conversation history
         if llm_tokenizer.chat_template is not None:
             prompt = llm_tokenizer.apply_chat_template(
-                conversation_messages,
+                messages_with_system,
                 tokenize=False,
                 add_generation_prompt=True,
                 enable_thinking=False  # Disable thinking for faster response
             )
         else:
             # Fallback if no chat template
-            prompt = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_messages])
+            prompt = f"System: {system_prompt}\n" + "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_messages])
 
         # Create text chunker for TTS
         chunker = TextChunker(mode='phrase')  # Use 'phrase' for faster streaming
