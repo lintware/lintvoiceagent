@@ -56,8 +56,6 @@
 
         .message {
             display: flex;
-            align-items: flex-start;
-            gap: 10px;
             animation: slideIn 0.3s ease-out;
         }
 
@@ -73,7 +71,7 @@
         }
 
         .message.user {
-            flex-direction: row-reverse;
+            justify-content: flex-end; /* Align user messages to the right */
         }
 
         .message-bubble {
@@ -96,24 +94,7 @@
             border-bottom-left-radius: 4px;
         }
 
-        .avatar {
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            flex-shrink: 0;
-        }
 
-        .message.user .avatar {
-            background: #007aff;
-        }
-
-        .message.assistant .avatar {
-            background: #e9ecef;
-        }
 
         .controls {
             padding: 20px;
@@ -125,33 +106,41 @@
         }
 
         .record-btn {
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
+            width: 120px; /* Wider button */
+            height: 48px; /* Standard height */
+            border-radius: 8px; /* Slightly rounded corners */
             border: none;
-            background: #e0e0e0;
-            color: #555;
-            font-size: 28px;
+            background: #007aff; /* Primary blue color */
+            color: white; /* White text */
+            font-size: 16px;
+            font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 10px rgba(0, 122, 255, 0.2); /* Blue shadow */
             display: flex;
             align-items: center;
             justify-content: center;
         }
 
         .record-btn:hover {
-            transform: scale(1.05);
-            background: #d0d0d0;
+            background: #005bb5; /* Darker blue on hover */
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
         }
 
         .record-btn:active {
-            transform: scale(0.95);
+            transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(0, 122, 255, 0.2);
         }
 
         .record-btn.recording {
-            background: #dc3545;
-            animation: pulse 1.5s infinite;
+            background: #dc3545; /* Red for recording */
+            box-shadow: 0 2px 10px rgba(220, 53, 69, 0.2); /* Red shadow */
+            animation: none; /* Remove pulse animation */
+        }
+
+        .record-btn.recording:hover {
+            background: #c82333;
         }
 
         .record-btn:disabled {
@@ -159,10 +148,7 @@
             cursor: not-allowed;
         }
 
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-        }
+
 
         .status-text {
             color: #666;
@@ -222,22 +208,20 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Voice Chat Assistant</h1>
-            <div class="status-text" style="margin-top:8px;color:#666">VAD: Silero</div>
+            <h1>LintVoice</h1>
         </div>
 
         <div class="error" id="error"></div>
 
         <div class="chat-container" id="chatContainer">
             <div class="empty-state">
-                <div class="empty-state-icon">💬</div>
                 <p>Click the microphone and start talking!</p>
             </div>
         </div>
 
         <div class="controls">
             <button class="record-btn" id="recordBtn" title="Click to start recording" disabled>
-                🎤
+                Start
             </button>
             <span class="status-text" id="statusText">Ready</span>
         </div>
@@ -313,16 +297,11 @@
                     messageDiv.className = 'message user';
                     messageDiv.style.opacity = '0.6';  // Make it lighter
 
-                    const avatar = document.createElement('div');
-                    avatar.className = 'avatar';
-                    avatar.textContent = '👤';
-
                     const bubble = document.createElement('div');
                     bubble.className = 'message-bubble';
                     bubble.textContent = data.text;
 
                     messageDiv.appendChild(bubble);
-                    messageDiv.appendChild(avatar);
 
                     chatContainer.appendChild(messageDiv);
                     chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -367,15 +346,10 @@
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message assistant';
 
-            const avatar = document.createElement('div');
-            avatar.className = 'avatar';
-            avatar.textContent = '🤖';
-
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble';
             bubble.textContent = '';
 
-            messageDiv.appendChild(avatar);
             messageDiv.appendChild(bubble);
 
             chatContainer.appendChild(messageDiv);
@@ -534,15 +508,10 @@
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${role}`;
 
-            const avatar = document.createElement('div');
-            avatar.className = 'avatar';
-            avatar.textContent = role === 'user' ? '👤' : '🤖';
-
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble';
             bubble.textContent = text;
 
-            messageDiv.appendChild(avatar);
             messageDiv.appendChild(bubble);
 
             chatContainer.appendChild(messageDiv);
@@ -592,7 +561,7 @@
 
                 isRecording = true;
                 recordBtn.classList.add('recording');
-                recordBtn.textContent = '⏹️';
+                recordBtn.textContent = 'Stop';
                 statusText.textContent = 'Listening...';
                 statusText.classList.add('recording');
 
@@ -622,7 +591,7 @@
                 socket.emit('stop_stream');
 
                 recordBtn.classList.remove('recording');
-                recordBtn.textContent = '🎤';
+                recordBtn.textContent = 'Start';
                 statusText.textContent = 'Ready';
                 statusText.classList.remove('recording');
             }
