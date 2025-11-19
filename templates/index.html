@@ -53,13 +53,12 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
             position: relative;
             width: 100%;
             max-width: 800px;
             margin: 0 auto;
-            padding: 2rem;
+            padding: 0 2rem;
+            overflow: hidden;
         }
 
         /* Chat Area */
@@ -67,11 +66,10 @@
             width: 100%;
             flex: 1;
             overflow-y: auto;
-            padding: 2rem;
+            padding: 2rem 0;
             display: flex;
             flex-direction: column;
             gap: 1.5rem;
-            margin-bottom: 2rem;
             /* Hide scrollbar */
             scrollbar-width: none;
             -ms-overflow-style: none;
@@ -109,7 +107,8 @@
             flex-direction: column;
             align-items: center;
             gap: 1.5rem;
-            margin-bottom: 4rem;
+            padding: 2rem 0;
+            flex-shrink: 0;
         }
 
         .mic-button {
