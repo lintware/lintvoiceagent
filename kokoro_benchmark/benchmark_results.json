@@ -1,0 +1,34 @@
+[
+  {
+    "model": "mlx-community/Kokoro-82M-bf16",
+    "model_name": "Kokoro-82M-bf16",
+    "success": true,
+    "generation_time_seconds": 2.373,
+    "file_size_kb": 273.09,
+    "output_file": "benchmark_outputs/Kokoro-82M-bf16.wav"
+  },
+  {
+    "model": "mlx-community/Kokoro-82M-8bit",
+    "model_name": "Kokoro-82M-8bit",
+    "success": true,
+    "generation_time_seconds": 11.082,
+    "file_size_kb": 273.09,
+    "output_file": "benchmark_outputs/Kokoro-82M-8bit.wav"
+  },
+  {
+    "model": "mlx-community/Kokoro-82M-6bit",
+    "model_name": "Kokoro-82M-6bit",
+    "success": true,
+    "generation_time_seconds": 9.599,
+    "file_size_kb": 276.61,
+    "output_file": "benchmark_outputs/Kokoro-82M-6bit.wav"
+  },
+  {
+    "model": "mlx-community/Kokoro-82M-4bit",
+    "model_name": "Kokoro-82M-4bit",
+    "success": true,
+    "generation_time_seconds": 6.794,
+    "file_size_kb": 271.92,
+    "output_file": "benchmark_outputs/Kokoro-82M-4bit.wav"
+  }
+]
