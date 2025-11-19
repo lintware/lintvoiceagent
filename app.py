@@ -35,7 +35,9 @@ buffer_locks = defaultdict(threading.Lock)
 accumulated_text = defaultdict(str)  # Track accumulated transcription per session
 conversation_history = defaultdict(list)  # Track conversation history for each session
 silence_counters = defaultdict(int)  # Track consecutive silent chunks
-SILENCE_THRESHOLD = 10  # Number of silent chunks before considering speech ended
+last_partial_text = defaultdict(str)  # Track last partial transcription to avoid duplicates
+SILENCE_THRESHOLD = 8  # Number of silent chunks before considering speech ended (reduced for faster response)
+STREAMING_CHUNK_SIZE = 32000  # 2 seconds at 16kHz - transcribe every 2 seconds while speaking
 
 def _resample_linear(x, sr_in, sr_out):
     """Lightweight linear resampler"""
@@ -160,6 +162,8 @@ def handle_disconnect():
             del conversation_history[sid]
         if sid in silence_counters:
             del silence_counters[sid]
+        if sid in last_partial_text:
+            del last_partial_text[sid]
         if sid in buffer_locks:
             del buffer_locks[sid]
 
@@ -170,6 +174,7 @@ def handle_start_stream():
         audio_buffers[sid] = []
         accumulated_text[sid] = ""
         silence_counters[sid] = 0
+        last_partial_text[sid] = ""
     emit('stream_started', {'message': 'Stream initialized'})
 
 @socketio.on('audio_chunk')
@@ -213,15 +218,28 @@ def handle_audio_chunk(data):
                 if silence_counters[sid] > SILENCE_THRESHOLD:
                     audio_buffers[sid] = []
                     silence_counters[sid] = 0
+                    last_partial_text[sid] = ""
                 return
 
-            # If we detected sustained silence after speech, process the buffer
-            if silence_counters[sid] >= SILENCE_THRESHOLD and len(combined_audio) >= min_samples:
-                # Process the speech segment
-                pass  # Continue to transcription below
-            else:
+            # STREAMING MODE: Transcribe while speaking (every 2 seconds)
+            # Send partial results while user is still speaking
+            should_stream_partial = (
+                chunk_has_speech and
+                len(combined_audio) >= STREAMING_CHUNK_SIZE and
+                silence_counters[sid] < SILENCE_THRESHOLD
+            )
+
+            # FINAL MODE: User stopped speaking (sustained silence detected)
+            should_finalize = (
+                silence_counters[sid] >= SILENCE_THRESHOLD and
+                len(combined_audio) >= min_samples
+            )
+
+            if not (should_stream_partial or should_finalize):
                 # Keep accumulating
                 return
+
+            is_final = should_finalize
 
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
                 tmp_path = tmp_file.name
@@ -238,26 +256,43 @@ def handle_audio_chunk(data):
                 text = getattr(result, "text", str(result))
 
                 if text and text.strip():
-                    # Add user message to conversation history
-                    conversation_history[sid].append({"role": "user", "content": text})
+                    # Emit partial or final transcription
+                    if is_final:
+                        # FINAL transcription - send to LLM for response
+                        # Add user message to conversation history
+                        conversation_history[sid].append({"role": "user", "content": text})
 
-                    # Send user message to frontend
-                    emit('user_message', {'text': text})
+                        # Send final user message to frontend
+                        emit('user_message', {'text': text, 'is_final': True})
 
-                    # Signal start of assistant response
-                    emit('assistant_start')
+                        # Signal start of assistant response
+                        emit('assistant_start')
 
-                    # Generate LLM response with streaming
-                    llm_response = get_llm_response_streaming(conversation_history[sid], sid)
+                        # Generate LLM response with streaming
+                        llm_response = get_llm_response_streaming(conversation_history[sid], sid)
 
-                    # Add assistant response to conversation history
-                    conversation_history[sid].append({"role": "assistant", "content": llm_response})
+                        # Add assistant response to conversation history
+                        conversation_history[sid].append({"role": "assistant", "content": llm_response})
 
-                    # Signal end of assistant response
-                    emit('assistant_complete', {'text': llm_response})
+                        # Signal end of assistant response
+                        emit('assistant_complete', {'text': llm_response})
 
-                    # Clear audio buffer for next segment
-                    audio_buffers[sid] = []
+                        # Clear audio buffer and partial text for next segment
+                        audio_buffers[sid] = []
+                        last_partial_text[sid] = ""
+                    else:
+                        # PARTIAL transcription - just show what's being said
+                        # Only emit if it's different from the last partial
+                        if text != last_partial_text[sid]:
+                            emit('partial_transcription', {'text': text, 'is_final': False})
+                            last_partial_text[sid] = text
+
+                        # Keep last 1 second of audio to maintain context
+                        # This prevents word-cutting issues
+                        overlap_samples = 16000  # 1 second
+                        if len(combined_audio) > overlap_samples:
+                            # Keep only the last 1 second
+                            audio_buffers[sid] = [combined_audio[-overlap_samples:]]
 
             finally:
                 try:
