@@ -4,12 +4,12 @@ __pycache__/
 *$py.class
 *.so
 .Python
-
-# Virtual environments
 venv/
 env/
 ENV/
-.venv
+*.egg-info/
+dist/
+build/
 
 # IDEs
 .vscode/
@@ -18,15 +18,26 @@ ENV/
 *.swo
 *~
 
-# OS
+# macOS
 .DS_Store
-Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Logs
+*.log
+nohup.out
+server.log
+
+# Model cache
+.cache/
+models/
+
+# Temporary files
+*.tmp
+*.temp
+*.wav
+temp_*.wav
 
 # Environment variables
 .env
 .env.local
-
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
