@@ -12,26 +12,26 @@ SILERO_CONFIG = {
     # Speech detection threshold (0.0-1.0)
     # Lower = more sensitive (detects quieter speech)
     # Higher = less sensitive (only detects clear speech)
-    'threshold': 0.5,
+    'threshold': 0.4,
 
     # Number of consecutive silent chunks before considering turn complete
     # Each chunk is ~256ms (4096 samples at 16kHz)
-    # 8 chunks = ~2 seconds of silence
+    # 10 chunks = ~2.5 seconds - responsive but patient enough for natural pauses
     # Lower = faster response but may cut off speech
     # Higher = more patient but slower response
-    'silence_threshold': 8,
+    'silence_threshold': 10,
 
     # Minimum speech duration to detect (milliseconds)
     # Lower = detects very short utterances
     # Higher = ignores short sounds/noise
-    'min_speech_duration_ms': 250,
+    'min_speech_duration_ms': 200,
 
     # Minimum silence duration to split speech segments (milliseconds)
-    'min_silence_duration_ms': 100,
+    'min_silence_duration_ms': 120,
 
     # RMS energy threshold for quick detection
-    # Very low threshold for fast rejection of silent audio
-    'energy_threshold': 0.001,
+    # Higher = filters out more background noise
+    'energy_threshold': 0.005,
 }
 
 # ============================================================================
