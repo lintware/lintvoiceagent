@@ -259,9 +259,9 @@
         <a href="https://lintware.com" target="_blank" class="footer-link lintware-link">
             lintware
         </a>
-        <div class="footer-link" id="github-btn">
+        <a href="https://github.com/lintware/lintvoiceagent" target="_blank" class="footer-link" id="github-btn">
             <i class="fa-brands fa-github"></i>
-        </div>
+        </a>
     </div>
 
     <div class="toast" id="toast">Coming soon</div>
@@ -627,14 +627,6 @@
             } else {
                 startStreaming();
             }
-        });
-
-        // GitHub button click handler - shows toast
-        githubBtn.addEventListener('click', () => {
-            toast.classList.add('show');
-            setTimeout(() => {
-                toast.classList.remove('show');
-            }, 2000);
         });
 
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
