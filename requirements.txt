@@ -1,0 +1,12 @@
+flask==3.0.0
+flask-socketio==5.3.5
+python-socketio==5.10.0
+numpy
+mlx
+mlx-audio
+eventlet>=0.40.3
+torch
+torchaudio
+transformers
+accelerate
+safetensors

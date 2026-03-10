@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>LintVoice - Futuristic Voice</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* CSS Variables & Reset */
+        :root {
+            --bg-color: #ffffff;
+            --text-main: #111111;
+            --text-secondary: #888888;
+            --accent-color: #111111;
+            --bubble-user: #111111;
+            --btn-bg: #f3f3f3;
+            --btn-border: #e5e5e5;
+            --font-main: 'Inter', sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: var(--font-main);
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Header */
+        header {
+            padding: 1rem 1.5rem 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+
+        /* Main Container */
+        main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            overflow: hidden;
+        }
+
+        /* Chat Area */
+        #chat-container {
+            width: 100%;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 2rem 0 14rem; /* bottom padding clears toolbar */
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            /* Hide scrollbar */
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        #chat-container::-webkit-scrollbar { display: none; }
+
+        .message {
+            max-width: 80%;
+            padding: 1rem 1.5rem;
+            border-radius: 1.5rem;
+            font-size: 1rem;
+            line-height: 1.5;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeInUp 0.4s forwards;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background-color: var(--bubble-user);
+            color: #ffffff;
+            border-radius: 1.5rem;
+            border-bottom-right-radius: 0.4rem;
+        }
+
+        .message.assistant {
+            align-self: flex-start;
+            background: none;
+            padding: 0.25rem 0;
+            color: var(--text-main);
+            font-size: 1.05rem;
+            line-height: 1.6;
+            max-width: 95%;
+        }
+
+        /* Bottom Toolbar */
+        .voice-controls {
+            position: fixed;
+            bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+            left: 0; right: 0;
+            padding: 0 1.25rem;
+        }
+
+        .toolbar-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            margin-bottom: 0.6rem;
+        }
+
+        .tool-btn {
+            flex: 1;
+            height: 64px;
+            border-radius: 1.5rem;
+            background: var(--btn-bg);
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.4rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .tool-btn:hover { background: #e5e5e5; color: #111; }
+        .tool-btn.active { color: #22c55e; }
+        .tool-btn.mic-btn-main {
+            color: var(--text-main);
+        }
+        .tool-btn.mic-btn-main.listening {
+            background: #111111;
+            color: #ffffff;
+            animation: pulse-dark 1.5s infinite;
+        }
+        .tool-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* Speed popup */
+        .speed-popup {
+            display: none;
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #ffffff;
+            border: 1px solid #ddd;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            border-radius: 1rem;
+            padding: 0.75rem 1rem;
+            white-space: nowrap;
+            z-index: 50;
+            gap: 0.6rem;
+            align-items: center;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        .speed-popup.open { display: flex; }
+        .speed-popup input[type=range] {
+            -webkit-appearance: none;
+            width: 110px;
+            height: 3px;
+            background: #ddd;
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+        .speed-popup input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 13px; height: 13px;
+            border-radius: 50%;
+            background: #111;
+            cursor: pointer;
+        }
+        .speed-label { font-variant-numeric: tabular-nums; min-width: 2.4rem; }
+
+        /* Status bar */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 0.25rem;
+        }
+        .status-text {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-weight: 300;
+        }
+        .lintware-link {
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            color: var(--text-secondary);
+            opacity: 0.5;
+            text-decoration: none;
+        }
+        .lintware-link:hover { opacity: 1; }
+
+        /* Animations */
+        @keyframes fadeInUp {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(0,0,0,0.4); }
+            70% { box-shadow: 0 0 0 20px rgba(0,0,0,0); }
+            100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+        }
+        @keyframes pulse-dark {
+            0% { box-shadow: 0 0 0 0 rgba(0,0,0,0.15); }
+            70% { box-shadow: 0 0 0 18px rgba(0,0,0,0); }
+            100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            top: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(-100px);
+            background: var(--accent-color);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 2rem;
+            font-size: 0.875rem;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 100;
+        }
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* Error styling */
+        .error {
+            background: #ffe0e0;
+            color: #d32f2f;
+            padding: 0.75rem 1.5rem;
+            border-radius: 2rem;
+            font-size: 0.875rem;
+            position: fixed;
+            top: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(-100px);
+            z-index: 100;
+            border: 1px solid #ffcdd2;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .error.active {
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            color: var(--text-secondary);
+            padding: 2rem;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <a href="https://lintware.com" target="_blank" style="font-weight:600;font-size:1.1rem;letter-spacing:-0.03em;color:#111;text-decoration:none;">lintware</a>
+        <a href="https://github.com/lintware/lintvoiceagent" target="_blank" style="color:#111;font-size:1.8rem;text-decoration:none;" id="github-btn">
+            <i class="fa-brands fa-github"></i>
+        </a>
+    </header>
+
+    <main>
+        <div id="chat-container">
+            <div class="empty-state">Tap to speak</div>
+        </div>
+
+        <div class="voice-controls">
+            <div class="toolbar-row">
+                <button class="tool-btn" id="camera-btn" title="Enable camera">
+                    <i class="fa-solid fa-video-slash"></i>
+                </button>
+                <button class="tool-btn" id="speed-btn" title="Speech speed" style="position:relative;">
+                    <i class="fa-solid fa-gauge"></i>
+                    <div class="speed-popup" id="speed-popup">
+                        <i class="fa-solid fa-gauge" style="font-size:0.75rem"></i>
+                        <input type="range" id="speed-slider" min="0.5" max="2.0" step="0.1" value="1.0">
+                        <span class="speed-label" id="speed-label">1.0×</span>
+                    </div>
+                </button>
+                <button class="tool-btn mic-btn-main" id="mic-btn" disabled>
+                    <i class="fa-solid fa-microphone"></i>
+                </button>
+                <button class="tool-btn" id="stop-btn" title="Stop">
+                    <i class="fa-solid fa-stop"></i>
+                </button>
+            </div>
+            <div class="status-bar">
+                <span class="status-text" id="status-text">Ready</span>
+
+            </div>
+            <div class="camera-pip" id="camera-pip">
+                <video id="camera-preview" autoplay playsinline muted></video>
+                <div class="camera-pip-controls">
+                    <button class="pip-btn" id="flip-cam-btn" title="Flip"><i class="fa-solid fa-camera-rotate"></i></button>
+                    <button class="pip-btn" id="close-cam-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+            </div>
+            <canvas id="camera-canvas" style="display:none;" width="640" height="480"></canvas>
+        </div>
+    </main>
+
+
+
+    <div class="toast" id="toast">Coming soon</div>
+    <div class="error" id="error"></div>
+
+    <script>
+        let socket;
+        let audioContext;
+        let stream;
+        let isRecording = false;
+        // VAD is fixed to Silero
+
+        const micBtn = document.getElementById('mic-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const speedBtn = document.getElementById('speed-btn');
+        const speedPopup = document.getElementById('speed-popup');
+        const chatContainer = document.getElementById('chat-container');
+        const statusText = document.getElementById('status-text');
+        const errorDiv = document.getElementById('error');
+        
+        const toast = document.getElementById('toast');
+        const speedSlider = document.getElementById('speed-slider');
+        const speedLabel = document.getElementById('speed-label');
+        const cameraBtn = document.getElementById('camera-btn');
+        const cameraCanvas = document.getElementById('camera-canvas');
+        const cameraCtx = cameraCanvas.getContext('2d');
+
+        // Camera state
+        let cameraEnabled = false;
+        let cameraStream = null;
+        let cameraVideo = null;
+        let cameraFrameInterval = null;
+        let latestFrame = null;  // base64 JPEG of most recent frame
+
+        const cameraPreview = document.getElementById('camera-preview');
+        const flipCamBtn = document.getElementById('flip-cam-btn');
+        const closeCamBtn = document.getElementById('close-cam-btn');
+        let facingMode = 'user'; // front camera by default
+
+        async function startCamera() {
+            try {
+                if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
+                cameraStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode, width: { ideal: 640 }, height: { ideal: 480 } }
+                });
+                cameraPreview.srcObject = cameraStream;
+                // Mirror front cam, don't mirror back
+                cameraPreview.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'none';
+                cameraVideo = cameraPreview;
+                cameraEnabled = true;
+                document.body.classList.add('camera-active');
+                cameraBtn.classList.add('active');
+                cameraBtn.innerHTML = '<i class="fa-solid fa-video"></i>';
+                cameraBtn.title = 'Camera on';
+                cameraFrameInterval = setInterval(() => {
+                    if (!cameraVideo || cameraVideo.readyState < 2) return;
+                    cameraCtx.drawImage(cameraVideo, 0, 0, 640, 480);
+                    latestFrame = cameraCanvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+                }, 3000);
+            } catch (e) {
+                console.warn('[CAMERA] Permission denied:', e);
+                showError('Camera permission denied');
+            }
+        }
+
+        function stopCamera() {
+            if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
+            if (cameraFrameInterval) clearInterval(cameraFrameInterval);
+            cameraStream = null; cameraVideo = null; latestFrame = null;
+            cameraEnabled = false;
+            cameraPreview.srcObject = null;
+            document.body.classList.remove('camera-active');
+            cameraBtn.classList.remove('active');
+            cameraBtn.innerHTML = '<i class="fa-solid fa-video-slash"></i>';
+            cameraBtn.title = 'Enable camera vision';
+            socket.emit('camera_disabled');
+        }
+
+        cameraBtn.addEventListener('click', () => {
+            if (!cameraEnabled) startCamera(); else stopCamera();
+        });
+        closeCamBtn.addEventListener('click', stopCamera);
+        flipCamBtn.addEventListener('click', () => {
+            facingMode = facingMode === 'environment' ? 'user' : 'environment';
+            startCamera();
+        });
+
+        // No VAD toggle in this version
+
+        // Audio playback queue for streaming TTS
+        let audioQueue = [];
+        let isPlayingAudio = false;
+        let audioPlaybackContext = null;
+        let currentSource = null;
+        let playbackEnabled = true; // gate to ignore audio when stopped
+        // Gapless scheduling state
+        let nextStartTime = 0; // when the next chunk should start
+        let activeSources = []; // all scheduled sources for cancel/stop
+
+        socket = io();
+
+        socket.on('connect', () => {
+            micBtn.disabled = false;
+            statusText.textContent = 'Ready';
+        });
+
+        // Auto-set Rick as default voice on connect
+        socket.on('connect_ack', () => {});
+
+        // Speed control
+        speedSlider.addEventListener('input', () => {
+            const val = parseFloat(speedSlider.value).toFixed(1);
+            speedLabel.textContent = val + '×';
+            socket.emit('set_speed', { speed: parseFloat(val) });
+        });
+
+        speedBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            speedPopup.classList.toggle('open');
+        });
+        document.addEventListener('click', () => speedPopup.classList.remove('open'));
+
+        // Stop button
+        stopBtn.addEventListener('click', () => {
+            socket.emit('stop_stream');
+            stopAudioPlayback();
+        });
+
+        socket.on('disconnect', () => {
+            micBtn.disabled = true;
+            statusText.textContent = 'Disconnected';
+            // Ensure any ongoing audio is stopped on disconnect
+            playbackEnabled = false;
+            stopAudioPlayback();
+        });
+
+        socket.on('vad_mode_changed', (data) => {
+            console.log('VAD:', data.message);
+        });
+        socket.on('stream_started', (data) => {
+            console.log('Stream started');
+        });
+
+        let currentAssistantBubble = null;
+        let currentPartialBubble = null;
+
+        // Pipeline stage logging
+        socket.on('pipeline_stage', (data) => {
+            console.log(`%c[${data.stage.toUpperCase()}] ${data.message}`,
+                'color: #007aff; font-weight: bold');
+        });
+
+        socket.on('partial_transcription', (data) => {
+            console.log('[PARTIAL TRANSCRIPTION]', data.text);
+            // Show partial transcription while user is speaking
+            if (data.text) {
+                if (!currentPartialBubble) {
+                    // Create a partial message bubble (lighter style)
+                    const emptyState = chatContainer.querySelector('.empty-state');
+                    if (emptyState) {
+                        emptyState.remove();
+                    }
+
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = 'message user';
+                    messageDiv.style.opacity = '0.6';  // Make it lighter
+
+                    messageDiv.textContent = data.text;
+
+                    chatContainer.appendChild(messageDiv);
+                    scrollBottom();
+
+                    currentPartialBubble = { div: messageDiv };
+                } else {
+                    // Update existing partial bubble
+                    currentPartialBubble.div.textContent = data.text;
+                    scrollBottom();
+                }
+            }
+        });
+
+        socket.on('user_message', (data) => {
+            console.log('[USER MESSAGE] Displaying final transcription:', data.text);
+            if (data.text) {
+                // Remove partial bubble if exists
+                if (currentPartialBubble) {
+                    currentPartialBubble.div.remove();
+                    currentPartialBubble = null;
+                }
+                // Add final message
+                addMessage(data.text, 'user');
+            }
+        });
+
+        socket.on('assistant_start', () => {
+            console.log('[ASSISTANT START] Creating assistant message bubble');
+            playbackEnabled = true;
+            // Reset scheduling for a fresh response
+            nextStartTime = 0;
+
+            // Create empty assistant message bubble
+            const emptyState = chatContainer.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            // Stop any ongoing audio from previous response
+            stopAudioPlayback();
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message assistant';
+            messageDiv.textContent = '';
+
+            chatContainer.appendChild(messageDiv);
+            scrollBottom();
+
+            currentAssistantBubble = messageDiv;
+        });
+
+        socket.on('assistant_token', (data) => {
+            if (currentAssistantBubble && data.token) {
+                // Log first few tokens
+                if (currentAssistantBubble.textContent.length < 20) {
+                    console.log('[ASSISTANT TOKEN] Received token:', data.token);
+                }
+                currentAssistantBubble.textContent += data.token;
+                scrollBottom();
+            }
+        });
+
+        // Periodic full text sync to fix any token drops
+        socket.on('assistant_progress', (data) => {
+            if (currentAssistantBubble && typeof data.text === 'string') {
+                currentAssistantBubble.textContent = data.text;
+                scrollBottom();
+            }
+        });
+
+        socket.on('assistant_complete', (data) => {
+            console.log('[ASSISTANT COMPLETE] Full response received');
+            currentAssistantBubble = null;
+        });
+
+        // Handle streaming audio from TTS
+        socket.on('assistant_audio', (data) => {
+            console.log('[ASSISTANT AUDIO] Received audio chunk, queuing for playback');
+            if (data.audio && playbackEnabled) {
+                queueAudio(data.audio, data.sample_rate || 24000);
+            }
+        });
+
+        // Cancel/stop assistant playback (barge-in)
+        socket.on('assistant_cancel', () => {
+            console.log('[ASSISTANT CANCEL] Stopping audio playback due to barge-in');
+            playbackEnabled = false;
+            stopAudioPlayback();
+        });
+
+        async function queueAudio(base64Audio, sampleRate) {
+            // Decode base64 to ArrayBuffer
+            const binaryString = atob(base64Audio);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            // Add to queue
+            audioQueue.push({ data: bytes.buffer, sampleRate: sampleRate });
+
+            // Start playback if not already playing
+            if (!isPlayingAudio) {
+                playNextAudio();
+            }
+        }
+
+        async function playNextAudio() {
+            // Schedule all available chunks back-to-back for gapless playback
+            if (audioQueue.length === 0) {
+                if (isPlayingAudio) {
+                    isPlayingAudio = false;
+                    socket.emit('playback_ended');
+                    console.log('[AUDIO PLAYBACK] Queue empty, playback complete');
+                }
+                return;
+            }
+
+            if (!isPlayingAudio) {
+                socket.emit('playback_started');
+            }
+            isPlayingAudio = true;
+
+            // Initialize audio context if needed
+            if (!audioPlaybackContext) {
+                audioPlaybackContext = new (window.AudioContext || window.webkitAudioContext)();
+                console.log('[AUDIO PLAYBACK] Audio context initialized');
+                nextStartTime = 0; // reset scheduling baseline
+            }
+
+            try {
+                // Schedule as many as are currently queued
+                while (audioQueue.length > 0 && playbackEnabled) {
+                    const audioData = audioQueue.shift();
+                    // Decode WAV
+                    const audioBuffer = await audioPlaybackContext.decodeAudioData(audioData.data);
+                    console.log(`[AUDIO PLAYBACK] Decoded chunk: ${audioBuffer.duration.toFixed(2)}s`);
+
+                    // Create and schedule source at precise time for gapless playback
+                    const source = audioPlaybackContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(audioPlaybackContext.destination);
+
+                    // Compute start time: schedule after previously scheduled audio
+                    const now = audioPlaybackContext.currentTime;
+                    if (nextStartTime === 0 || nextStartTime < now) {
+                        // Align to now with a tiny safety offset
+                        nextStartTime = now + 0.02;
+                    }
+                    source.start(nextStartTime);
+                    activeSources.push(source);
+                    currentSource = source; // keep a reference to the most recent
+
+                    // Advance next start time by duration
+                    nextStartTime += audioBuffer.duration;
+                }
+            } catch (error) {
+                console.error('[AUDIO PLAYBACK ERROR]', error);
+            } finally {
+                // If more audio arrives later, queueAudio() will call playNextAudio() again
+                if (audioQueue.length === 0) {
+                    isPlayingAudio = false;
+                }
+            }
+        }
+
+        function stopAudioPlayback() {
+            // Stop all scheduled/playing sources
+            try {
+                activeSources.forEach(src => {
+                    try {
+                        src.stop(0);
+                        src.disconnect();
+                    } catch (_) {}
+                });
+                activeSources = [];
+                if (currentSource) {
+                    try { currentSource.stop(0); currentSource.disconnect(); } catch (_) {}
+                    currentSource = null;
+                }
+            } catch (e) {
+                console.warn('[AUDIO STOP WARNING]', e);
+            }
+            // Clear queue and reset scheduling
+            audioQueue = [];
+            if (isPlayingAudio) {
+                socket.emit('playback_ended');
+            }
+            isPlayingAudio = false;
+            nextStartTime = 0;
+        }
+
+        socket.on('error', (data) => {
+            errorDiv.textContent = data.message;
+            errorDiv.classList.add('active');
+            setTimeout(() => {
+                errorDiv.classList.remove('active');
+            }, 5000);
+        });
+
+        function scrollBottom() {
+            scrollBottom();
+        }
+
+        function addMessage(text, role) {
+            // Remove empty state if it exists
+            const emptyState = chatContainer.querySelector('.empty-state');
+            if (emptyState) {
+                emptyState.remove();
+            }
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            messageDiv.textContent = text;
+
+            chatContainer.appendChild(messageDiv);
+
+            // Auto-scroll to bottom
+            scrollBottom();
+        }
+
+        async function startStreaming() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                const source = audioContext.createMediaStreamSource(stream);
+
+                const bufferSize = 4096;
+                const processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+
+                processor.onaudioprocess = (e) => {
+                    if (!isRecording) return;
+
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    const int16Data = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        const s = Math.max(-1, Math.min(1, inputData[i]));
+                        int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+
+                    const chunkPayload = {
+                        audio: int16Data.buffer,
+                        sampleRate: audioContext.sampleRate
+                    };
+                    // Attach latest camera frame if camera is enabled
+                    if (cameraEnabled && latestFrame) {
+                        chunkPayload.image = latestFrame;
+                        socket.emit('camera_frame', { image: latestFrame });
+                    }
+                    socket.emit('audio_chunk', chunkPayload);
+                };
+
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+
+                socket.emit('start_stream');
+
+                isRecording = true;
+                micBtn.classList.add('listening');
+                statusText.textContent = 'Listening...';
+
+            } catch (err) {
+                errorDiv.textContent = 'Microphone access denied';
+                errorDiv.classList.add('active');
+                setTimeout(() => {
+                    errorDiv.classList.remove('active');
+                }, 5000);
+            }
+        }
+
+        function stopStreaming() {
+            if (isRecording) {
+                isRecording = false;
+
+                if (audioContext) {
+                    audioContext.close();
+                    audioContext = null;
+                }
+
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    stream = null;
+                }
+
+                socket.emit('stop_stream');
+
+                micBtn.classList.remove('listening');
+                statusText.textContent = 'Ready';
+            }
+        }
+
+        micBtn.addEventListener('click', () => {
+            if (isRecording) {
+                stopStreaming();
+            } else {
+                startStreaming();
+            }
+        });
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            micBtn.disabled = true;
+            statusText.textContent = 'Microphone not supported';
+        }
+
+        // No VAD toggle
+    </script>
+</body>
+</html>
