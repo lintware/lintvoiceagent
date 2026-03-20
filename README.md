@@ -158,4 +158,4 @@ MIT
 
 ---
 
-Built with 🔥 by [Lintware](https://github.com/lintware)
+Built with 🔥 by [Lint Labs](https://github.com/lintware)
